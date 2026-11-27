@@ -17,6 +17,32 @@ Verification:
 
 ---
 
+## #1 - Optimizer silently stopped at its starting point (2026-11-27, caught by Pierre)
+
+AI output: `src/backtest.py` (first version), `min_variance_weights` called `scipy.optimize.minimize`
+(SLSQP) on `w @ Sigma @ w` with default tolerances.
+
+Why it is wrong (root cause): weekly variances are ~1e-4, below SLSQP's default stopping tolerance
+(`ftol = 1e-6`). The solver stopped almost immediately and returned weights close to its starting point
+(1/N) with no error or warning.
+
+How it was caught: a sanity check on the validation table. The "minimum-variance" portfolio had a
+higher volatility (8.3 %) than the max-Sharpe portfolio (6.8 %), which is impossible, and a turnover
+close to 1/N's.
+
+Impact if not caught: every minimum-variance result (and the fallback of max-Sharpe) would be wrong,
+and the min-variance vs mean-variance ablation (O5) would be meaningless.
+
+Fix: Sigma rescaled by its average variance before optimizing, and `ftol = 1e-12`
+(`src/backtest.py`, `min_variance_weights` and `_solve`). Min-variance volatility drops to 4.7 %.
+
+Verification: `tests/test_backtest.py::test_optimizers_beat_a_random_search` checks both optimizers
+against 20,000 random feasible portfolios.
+
+---
+
+---
+
 ## Flaws found in the AI first draft of the week 1 specification (to split into one entry each)
 
 The first draft of the week 1 report was written with an AI tool. We found these flaws when reviewing it,
