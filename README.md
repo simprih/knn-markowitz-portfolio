@@ -31,3 +31,8 @@ python -m pytest tests -q
 ```
 
 Everything runs from the project root with relative paths, and the random seed is set in `config.SEED`.
+
+## Status
+
+* Week 1 (specification, data pipeline, EDA): done, report handed in on 27 Nov 2026 (`report/week1/`).
+* Week 2 (walk-forward engine, rolling baseline, metrics): in review, pull request #2.
