@@ -1,4 +1,6 @@
+ipykernel==7.4.0
 matplotlib==3.11.2
+nbconvert==7.17.2
 numpy==2.5.3
 pandas==3.0.5
 pytest==9.1.1
