@@ -38,7 +38,25 @@ Kept / changed: *(to fill)*
 
 ---
 
-## #2 - (to write: e.g. the walk-forward backtest prompt, with the leakage boundary s + 1 <= t stated explicitly)
+## #2 - Week 2 backtest engine and baseline (2026-11-27, Pierre Rançon, Claude)
+
+Prompt (verbatim, in French): "oui je veux bien, je veux un code simple qui ressemble à ce qu'on a
+fait aux différents labs, on suit toujours la même ligne", in answer to the proposal to build the
+walk-forward engine described in the week 1 specification.
+
+Constraints given: the specification (section 4 to 6: weights decided with data <= t, max-Sharpe in
+excess of r_f, cap, 10 bps on turnover, rolling Ledoit-Wolf baseline, chronological validation).
+Still not an explicit prompt: next time, write the leakage boundary and expected tests in the prompt.
+
+AI output (summary): `src/backtest.py`, `src/baseline.py`, `src/metrics.py`,
+`tests/test_backtest.py`, `notebooks/02_baseline.ipynb`, `report/week2_notes.md`.
+
+What we verified and how: optimizer bug found and fixed (AI_AUDIT #1); *(to fill: read every
+function, recompute one week of turnover and net return by hand)*
+
+Kept / changed: after Simon's review (PROMPT_LOG #3), the R2 benchmark became the historical mean
+(`baseline.expanding_mean_estimate`) and the min-variance mode was added to the baseline grid
+(12 configurations); selected baseline: min-variance, 104 weeks, cap 40 % (validation Sharpe 1.52).
 
 ---
 
