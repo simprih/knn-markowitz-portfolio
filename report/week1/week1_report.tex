@@ -1,0 +1,170 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[hmargin=2cm,vmargin=1.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+\titlespacing*{\section}{0pt}{8pt}{3pt}
+\setlist{nosep,leftmargin=*}
+\setlength{\parskip}{3pt}
+\setlength{\parindent}{0pt}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+% ---------- Review colours (remove before submission) ----------
+% \changed{...} = modified text (red), \todo{...} = still to add or discuss (blue)
+\newcommand{\changed}[1]{#1}
+\newcommand{\todo}[1]{}
+% Final version: replace the two lines above by
+% \newcommand{\changed}[1]{#1}
+% \newcommand{\todo}[1]{}
+
+\begin{document}
+
+\noindent{\small Machine Learning Project \hfill ESILV, Financial Engineering major}\\
+{\small Week 1: Project Specification \hfill November 2026}\par
+\vspace{6pt}
+\begin{center}
+{\Large\bfseries Regime-Aware Portfolio Allocation}\\[2pt]
+{\large Estimating Markowitz Inputs from Similar Past Market Conditions with $k$-Nearest Neighbors}\\[6pt]
+Simon Prihnenko, Sacha Audouy, Pierre Rançon
+\end{center}
+
+\section{Context and Motivation}
+This project addresses multi-asset portfolio allocation: how to split a portfolio between six US-listed ETFs
+covering US and emerging-market equities, Treasuries, corporate bonds, gold and real estate. We use Markowitz
+mean-variance optimization \cite{markowitz}, but instead of estimating expected returns and covariances on a fixed
+recent window, we estimate them from the past weeks whose market conditions were most similar to the
+current week, identified with a $k$-nearest neighbors ($k$-NN) algorithm.
+Portfolio allocation and risk measurement are at the core of financial engineering; this project combines the
+classical framework with a Machine Learning method seen in class to adapt allocation decisions to changing
+market conditions.
+
+\section{Problem Statement and Objectives}
+Markowitz optimization relies on expected returns ($\mu$) and the covariance matrix ($\Sigma$), usually estimated on
+the last 52 weeks. These estimates are noisy and the optimizer amplifies their errors in the weights
+(``error maximization'' \cite{michaud}). Markets also go through regimes in which assets behave differently: in our
+\changed{training data (2005-2016)} the correlation of weekly SPY and IEF returns is \changed{$-0.01$ in calm weeks (VIX $\le 14.0$) and $-0.39$ in
+stressed weeks (VIX $\ge 19.6$)}, and it turned positive in 2022 with the inflation shock. A recent window mixes
+regimes and reacts late.
+
+\textbf{Research question:} does estimating $\mu$ and $\Sigma$ from the $k$ past weeks whose market conditions are most
+similar to the current week give better forecasts and better portfolios than estimating them on \changed{a rolling window of recent weeks}?
+
+Objectives, all measured on the test period (2017-2026), never used for tuning:
+\begin{itemize}
+\item \textbf{O1} - a reproducible pipeline without data leakage (every estimate at week $t$ uses only data known at $t$);
+\item \textbf{O2} - more accurate forecasts: lower error on next-week returns and on portfolio variance than the baseline;
+\item \textbf{O3} - a higher annualized Sharpe ratio net of transaction costs\changed{, with a 95\% confidence interval on the difference};
+\item \textbf{O4} - a smaller maximum drawdown in stress periods (Q4 2018, Feb-Mar 2020, 2022);
+\item \textbf{O5} - an interpretation of which past weeks are selected as neighbours, and of the resulting portfolio weights, in calm vs stress periods.
+\end{itemize}
+
+\section{Dataset Description}
+Daily data from Yahoo Finance (\url{https://finance.yahoo.com}), downloaded with the \texttt{yfinance} library, resampled
+to weekly (Friday close): 1{,}142 weeks from 7 January 2005 to 20 November 2026. Prices are adjusted for dividends
+and splits, so returns are total returns. Because Yahoo re-adjusts past prices after each dividend, the download is
+frozen in a CSV snapshot so every run gives the same numbers. \changed{Snapshot and code: \url{https://github.com/simprih/knn-markowitz-portfolio}. The repository is public; the Yahoo data it contains is used for non-commercial academic purposes only, to make the results reproducible. The sample covers calm and stressed regimes (2008, 2011, 2020, 2022) for six asset classes.}
+
+\textbf{Portfolio universe (6 ETFs):} SPY (US equities), EEM (emerging-market equities), IEF (US Treasuries 7-10y),
+LQD (investment-grade corporate bonds), GLD (gold), VNQ (US real estate). \textbf{Indicators:} \^{}VIX, \^{}TNX (10-year yield),
+\^{}IRX (13-week T-bill yield, also our risk-free rate).
+
+\textbf{Features} \changed{(state of the market at week $t$, all known at the Friday close):}
+
+\smallskip
+\begin{tabularx}{\linewidth}{@{}clLl@{}}
+\toprule
+\# & Feature & Definition & Captures\\\midrule
+1 & vix\_level & VIX$(t)$ & Market fear\\
+2 & vix\_change\_4w & VIX$(t)-$VIX$(t-4)$ & Fear rising or falling\\
+3 & spy\_mom\_12w & SPY$(t)/$SPY$(t-12)-1$ & Equity trend\\
+4 & spy\_vol\_12w & Std of SPY weekly returns over 12 weeks & Realized equity volatility\\
+5 & corr\_spy\_ief\_12w & Correlation of SPY and IEF returns over 12 weeks & Do bonds hedge equities?\\
+6 & yield\_curve & 10-year yield $-$ 13-week yield & Recession risk\\
+7 & short\_rate\_change\_12w & 13-week yield$(t)-$13-week yield$(t-12)$ & Monetary policy direction\\
+8 & credit\_12w & 12-week return of LQD $-$ 12-week return of IEF & Credit stress\\\bottomrule
+\end{tabularx}
+
+\smallskip
+\textbf{Targets:} next-week returns $r_{t+1}=P_{t+1}/P_t-1$ of the 6 ETFs, used only to compute $\mu$ and $\Sigma$, never to find similar weeks.
+
+\textbf{First EDA findings and limitations.} \changed{Statistics that drive a modelling decision are computed on the training weeks only (2005-2016).}
+\changed{Missing values only come from the 12-week windows and from the late listing of GLD and VNQ (2004); all fall before January 2005 and are dropped.}
+Returns are fat-tailed (Jarque-Bera rejects normality for all 6 ETFs; excess
+kurtosis up to \changed{14 for LQD, driven by 2008}); these weeks are real events and are kept. \changed{Prevalence: depending on the ETF and the period, 51\% to 63\% of next-week returns are positive; stressed weeks (VIX $\ge 19.6$) represent 44\% of the pool, 26\% of validation and 34\% of test, but extreme weeks (VIX $\ge 30$) only 15\%, 6\% and 6\%: these are the rare regimes with few neighbours.} Features 1 and 4 are
+strongly correlated (\changed{$\rho=0.86$}), so volatility counts twice in the distance: the feature ablation will test removing one.
+The yield curve is persistent (autocorrelation \changed{0.80} at 26 weeks) and non-stationary (ADF \changed{$p=0.41$}), and the test
+period sits in a different region (mean slope 0.47 vs 2.28 in validation), so test weeks may have distant neighbours.
+Yahoo has no 2-year or corporate yields, hence the 13-week yield and the LQD-IEF gap.
+
+\section{Machine Learning Task}
+\textbf{Task:} multi-output regression of the 6 next-week returns and conditional covariance estimation, solved non-parametrically with $k$-NN. \textbf{Input:} the 8 standardized features of week $t$.
+\textbf{Output:} $\hat\mu_t$, $\hat\Sigma_t$ and the weights $w_t$ held during week $t+1$.
+\begin{enumerate}
+\item \textbf{Find similar weeks.} At each week $t$, a \texttt{StandardScaler} is fitted on past weeks only. Among the
+\emph{eligible} past weeks $s$ \changed{(next-week return already known, $s+1\le t$, and not too recent, $t-s>g$), we}
+take the $k$ nearest to week $t$ (Euclidean distance). The pool grows every week (expanding window), so
+2020 and 2022 become available as neighbours in the test period. The gap $g$ is needed because the features are
+persistent: without it, the nearest weeks are simply the last few weeks and $k$-NN collapses into a rolling window.
+\item \textbf{Estimate} $\hat\mu_t=\frac1k\sum_{s\in N_k(t)} r_{s+1}$ and $\hat\Sigma_t$ = covariance of the $r_{s+1}$, shrunk with
+Ledoit-Wolf \cite{ledoit2004} because $k$ is small compared with the 21 covariance terms.
+\item \textbf{Markowitz.} Maximize the Sharpe ratio in excess of the risk-free rate, long-only, fully invested,
+with a weight cap to avoid corner solutions driven by noisy $\hat\mu$ (solved with \texttt{scipy}):
+\[\max_w \frac{w^\top(\hat\mu_t-\changed{r_{f,t}}\mathbf 1)}{\sqrt{w^\top\hat\Sigma_t w}}\quad\text{s.t. } 0\le w_i\le w_{\max},\ \textstyle\sum_i w_i=1,\]
+\changed{where $r_{f,t}=\mathrm{IRX}_t/100/52$ is the weekly risk-free rate known at $t$. Weights use data up to the Friday close of week $t$, are executed at that close and held until the Friday close of week $t+1$.}
+\end{enumerate}
+\changed{\textbf{Grid search and feature selection on validation} (LAB 6, LAB 4), with the chronological split, never a shuffled K-fold:}
+$k\in\{20,40,60,100\}$, $g\in\{13,26,52\}$, $w_{\max}\in\{30\%,40\%\}$ \changed{and the mode (max-Sharpe or minimum-variance), i.e.\ 48 configurations selected on the validation Sharpe ratio, then an ablation of each feature.}
+\changed{\textbf{Ensemble} (LAB 6): a \textbf{Voting} forecaster, the simple average of the $\hat\mu_t$ of $k$-NN, a decision tree and a Lasso regressor (same features, expanding window, refit every 13 weeks), with $\hat\Sigma_t$ from the $k$-NN, followed by the same Markowitz step.}
+\changed{\textbf{Out-of-course model} (guidelines, step 3): a Gaussian hidden Markov model fitted on the features of past weeks; $\hat\mu_t$ and $\hat\Sigma_t$ are computed from the past weeks in the same most likely regime, using past-only (filtered) state probabilities \cite{angbekaert}, then the same optimizer.}
+
+\section{Baseline Strategy}
+\textbf{Baseline: rolling-window Markowitz.} $\hat\mu$ and $\hat\Sigma$ (Ledoit-Wolf) on \changed{a rolling window of recent weeks}, then the same optimizer,
+cap and costs\changed{; the window ($\{26, 52, 104\}$ weeks) and the mode (max-Sharpe or minimum-variance) are tuned on validation}. It is the standard practitioner approach and differs from our model in one point only: which past
+weeks are used. Any difference therefore comes from the $k$-NN selection. \textbf{Benchmark:} equal weight $1/N$, known
+to be hard to beat out of sample: none of the 14 optimized models tested in \cite{demiguel} beats it consistently\changed{; SPY buy-and-hold as an extension}.
+
+\section{Evaluation Strategy}
+The data is a time series, so a random split or a shuffled K-fold would leak future information. We use a
+weekly walk-forward backtest with a chronological split: \textbf{pool} 2005-2009 (260 weeks, neighbours only, includes 2008),
+\textbf{validation} 2010-2016 (366 weeks, \changed{grid search and feature ablation}; includes the 2010-2011 euro crisis and the 2015-2016 sell-off),
+\textbf{test} 2017-2026 (516 weeks, run once with frozen settings).
+
+\textbf{Forecast metrics (ML level):} MSE and out-of-sample $R^2$ of $\hat\mu_t$ against the \changed{historical mean (expanding window)} \cite{campbell}\changed{, for each ETF};
+error between predicted and realized variance of the minimum-variance portfolio.
+\textbf{Portfolio metrics:} annualized return and volatility ($\sqrt{52}$), Sharpe ratio in excess of $r_f$, maximum drawdown,
+weekly turnover, all \textbf{net of 10 bps per unit of turnover}, on the full test period and the stress periods.
+\textbf{Leakage tests:} automated checks that targets are $r_{t+1}$, features use data up to $t$ only, and every neighbour satisfies $s+1\le t$.
+\changed{\textbf{Uncertainty:} 95\% confidence interval on the Sharpe difference ($k$-NN $-$ baseline) by stationary block bootstrap \cite{politis}.}
+
+\textbf{Risks and fallbacks.} (i) Weekly returns are barely predictable: if no $\hat\mu_t$ has $R^2>0$, the comparison rests on $\hat\Sigma_t$ (minimum-variance mode). (ii) Extreme regimes have few neighbours: $k$ is tuned and Ledoit-Wolf stabilizes $\hat\Sigma_t$. (iii) 48 configurations on 366 weeks can overfit validation: the test is run once, with a bootstrap interval. Extension: 5 bps costs.
+
+\section{Initial Work Plan}
+\begin{tabularx}{\linewidth}{@{}lLl@{}}
+\toprule
+Week & Main tasks & Owner\\\midrule
+1 & Topic, data download and snapshot, 8 features, EDA, leakage tests, this specification & Sacha Audouy\\
+2 & Walk-forward engine, Markowitz with cap and costs, rolling baseline, $1/N$, metrics, first validation results & Pierre Rançon\\
+3 & \changed{$k$-NN, tree, Lasso, Voting (LAB 6), HMM (outside the course); grid search; feature ablation (LAB 4)} & \changed{Simon, Sacha, Pierre}\\
+4 & Single test run, stress periods, \changed{final figures}, LaTeX report, oral & All\\\bottomrule
+\end{tabularx}
+
+\smallskip
+\changed{\textbf{Modules} (\texttt{CONTRIBUTIONS.md}): data, features, EDA, ablation - Sacha; backtest, baseline, metrics, HMM - Pierre; $k$-NN, tree, Lasso, Voting, grid search - Simon. Code on GitHub; AI use logged in \texttt{ai\_governance/} (one \texttt{PROMPT\_LOG} and one \texttt{AI\_AUDIT} entry per student at least).}
+
+\begin{thebibliography}{9}\footnotesize
+\setlength{\itemsep}{0pt}
+\bibitem{angbekaert} A.~Ang, G.~Bekaert (2002). International asset allocation with regime shifts. \emph{Rev. Financ. Stud.} 15(4).
+\bibitem{campbell} J.~Y.~Campbell, S.~B.~Thompson (2008). Predicting excess stock returns out of sample. \emph{Rev. Financ. Stud.} 21(4).
+\bibitem{demiguel} V.~DeMiguel, L.~Garlappi, R.~Uppal (2009). Optimal versus naive diversification. \emph{Rev. Financ. Stud.} 22(5).
+\bibitem{ledoit2004} O.~Ledoit, M.~Wolf (2004). A well-conditioned estimator for large-dimensional covariance matrices. \emph{J. Multivar. Anal.} 88(2).
+\bibitem{markowitz} H.~Markowitz (1952). Portfolio selection. \emph{J. Finance} 7(1).
+\bibitem{michaud} R.~O.~Michaud (1989). The Markowitz optimization enigma: is ``optimized'' optimal? \emph{Financ. Anal. J.} 45(1).
+\bibitem{politis} D.~N.~Politis, J.~P.~Romano (1994). The stationary bootstrap. \emph{J. Am. Stat. Assoc.} 89(428).
+\end{thebibliography}
+\end{document}
